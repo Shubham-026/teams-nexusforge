@@ -3,14 +3,12 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { Sparkles, Mail, Lock, User, ArrowRight, Shield, AlertCircle } from "lucide-react";
+import { Sparkles, Mail, Lock, ArrowRight, Shield, AlertCircle, LockKeyhole } from "lucide-react";
 
 export default function LoginPage() {
-  const { user, signInWithGoogle, signInWithEmail, signUpWithEmail, loading } = useAuth();
+  const { user, signInWithGoogle, signInWithEmail, loading } = useAuth();
   const router = useRouter();
 
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -28,24 +26,14 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      if (isSignUp) {
-        if (!name.trim()) {
-          throw new Error("Please enter your name");
-        }
-        await signUpWithEmail(email, password, name);
-      } else {
-        await signInWithEmail(email, password);
-      }
+      await signInWithEmail(email, password);
       router.push("/tasks");
     } catch (err: any) {
       const msg = err?.message || "Authentication failed";
-      // Format friendly firebase error messages
-      if (msg.includes("auth/invalid-credential")) {
-        setError("Invalid email or password. Please verify your credentials.");
-      } else if (msg.includes("auth/email-already-in-use")) {
-        setError("This agency email is already registered. Please sign in.");
-      } else if (msg.includes("auth/weak-password")) {
-        setError("Password should be at least 6 characters.");
+      if (msg.includes("auth/invalid-credential") || msg.includes("auth/user-not-found") || msg.includes("auth/wrong-password")) {
+        setError("Invalid credentials. Please verify your agency email and password.");
+      } else if (msg.includes("auth/too-many-requests")) {
+        setError("Too many failed attempts. Please try again in a few minutes.");
       } else {
         setError(msg);
       }
@@ -94,9 +82,7 @@ export default function LoginPage() {
               <span>teams.nexusforgeagency.in</span>
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              {isSignUp
-                ? "Join the digital agency production workspace"
-                : "Sign in with your verified team credentials"}
+              Sign in with your verified team credentials
             </p>
           </div>
 
@@ -144,32 +130,13 @@ export default function LoginPage() {
             </div>
             <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
               <span className="bg-white px-3 font-medium text-slate-400">
-                or use agency email
+                or sign in with agency email
               </span>
             </div>
           </div>
 
           {/* Form */}
           <form onSubmit={handleEmailAuth} className="space-y-4">
-            {isSignUp && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Full Name
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Vikram Malhotra"
-                    className="w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm text-slate-800 placeholder-slate-400 transition-all duration-300 focus:border-pastel-lavender-400 focus:outline-none focus:ring-2 focus:ring-pastel-lavender-100"
-                  />
-                </div>
-              </div>
-            )}
-
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Agency Email Address
@@ -210,34 +177,27 @@ export default function LoginPage() {
               disabled={submitting}
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-pastel-lavender-300 bg-pastel-lavender-500 py-2.5 text-xs font-semibold text-white shadow-soft-sm transition-all duration-300 hover:scale-[1.02] hover:bg-pastel-lavender-400 hover:shadow-lg active:scale-95 disabled:opacity-50"
             >
-              <span>{submitting ? "Authenticating..." : isSignUp ? "Create Team Account" : "Sign In to Dashboard"}</span>
+              <span>{submitting ? "Authenticating..." : "Sign In to Dashboard"}</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>
 
-          {/* Toggle Sign In / Sign Up */}
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setError(null);
-              }}
-              className="text-xs text-slate-500 transition-colors hover:text-slate-800 hover:underline"
-            >
-              {isSignUp
-                ? "Already have an account? Sign in"
-                : "New to the team? Request / create an account"}
-            </button>
+          {/* Strict Notice: No Public Registration */}
+          <div className="mt-6 flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/80 p-3 text-slate-500">
+            <LockKeyhole className="h-4 w-4 shrink-0 text-slate-400 mt-0.5" />
+            <div className="text-[11px] leading-relaxed">
+              <span className="font-semibold text-slate-700">Internal Agency Environment:</span>
+              <br />
+              Public account registration is disabled. Member accounts are provisioned exclusively by the Agency Admin / CTO.
+            </div>
           </div>
         </div>
 
         {/* Footer info */}
         <p className="mt-6 text-center text-xs text-slate-400">
-          NexusForge Agency Workspace • Protected by Firebase Auth & Supabase RLS
+          NexusForge Agency Workspace • Protected by Role-Based Access Control (RBAC)
         </p>
       </div>
     </div>
   );
 }
-

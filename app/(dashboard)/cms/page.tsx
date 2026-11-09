@@ -1,4 +1,5 @@
 import { CMSTable } from "@/components/cms/CMSTable";
+import { RoleGuard } from "@/components/auth/RoleGuard";
 
 export const metadata = {
   title: "Website CMS | NexusForge Agency",
@@ -6,6 +7,9 @@ export const metadata = {
 };
 
 export default function CMSPage() {
-  return <CMSTable />;
+  return (
+    <RoleGuard allowedRoles={["admin"]} moduleName="Website CMS (Admin / CTO Only)">
+      <CMSTable />
+    </RoleGuard>
+  );
 }
-
