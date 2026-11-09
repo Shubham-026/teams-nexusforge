@@ -1,18 +1,21 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import {
   Kanban,
   FileText,
   Users,
-  Settings,
+  Briefcase,
   ChevronLeft,
   ChevronRight,
   Sparkles,
   ExternalLink,
+  Shield,
 } from "lucide-react";
+import { UserRole } from "@/lib/types";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -21,23 +24,64 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const pathname = usePathname();
+  const { role, canAccessCMS, canManageUsers, canAccessCRM } = useAuth();
 
+  // Role display label mapping
+  const roleLabels: Record<UserRole, string> = {
+    admin: "Admin / CTO",
+    ceo: "CEO (Executive)",
+    sales_manager: "Sales Manager",
+    lead_manager: "Lead Manager",
+    member: "Team Member",
+  };
+
+  const roleBadgeStyles: Record<UserRole, string> = {
+    admin: "bg-pastel-lavender-100 text-pastel-lavender-500 border-pastel-lavender-200",
+    ceo: "bg-pastel-peach-100 text-pastel-peach-500 border-pastel-peach-200",
+    sales_manager: "bg-pastel-sky-100 text-pastel-sky-500 border-pastel-sky-200",
+    lead_manager: "bg-pastel-mint-100 text-pastel-mint-500 border-pastel-mint-200",
+    member: "bg-slate-100 text-slate-600 border-slate-200",
+  };
+
+  // Dynamic Navigation based on RBAC permissions
   const navigation = [
+    // Standard Task Board (Accessible to all roles)
     {
       name: "Task Board",
       href: "/tasks",
       icon: Kanban,
-      badge: "4 active",
+      badge: "Active",
       accent: "lavender",
+      visible: true,
     },
+    // Sales CRM (Accessible to Sales Manager, CEO, Admin)
     {
-      name: "Content CMS",
+      name: "CRM & Leads",
+      href: "/crm",
+      icon: Briefcase,
+      badge: "Pipeline",
+      accent: "sky",
+      visible: canAccessCRM,
+    },
+    // Website CMS (Strictly exclusive to Admin / CTO)
+    {
+      name: "Website CMS",
       href: "/cms",
       icon: FileText,
-      badge: "Drafts",
+      badge: "Admin",
       accent: "mint",
+      visible: canAccessCMS,
     },
-  ];
+    // Team Management (Strictly exclusive to Admin / CTO)
+    {
+      name: "Team Access",
+      href: "/team",
+      icon: Users,
+      badge: "RBAC",
+      accent: "peach",
+      visible: canManageUsers,
+    },
+  ].filter((item) => item.visible);
 
   return (
     <aside
@@ -66,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         <button
           onClick={onToggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-500 transition-all duration-300 hover:scale-[1.02] hover:bg-white hover:text-slate-800 hover:shadow-sm"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-500 transition-all duration-300 hover:scale-[1.02] hover:bg-white hover:text-slate-800 hover:shadow-sm active:scale-95"
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </button>
@@ -76,9 +120,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
       <div className="flex-1 space-y-1.5 px-3 py-4">
         <div className="px-2 pb-2">
           {!collapsed && (
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Agency Modules
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Agency Modules
+              </p>
+              <span
+                className={`rounded border px-1.5 py-0.5 text-[9px] font-medium uppercase ${
+                  roleBadgeStyles[role] || roleBadgeStyles.member
+                }`}
+              >
+                {role}
+              </span>
+            </div>
           )}
         </div>
 
@@ -86,26 +139,46 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
           const isActive = pathname.startsWith(item.href);
           const Icon = item.icon;
 
+          const getActiveClass = () => {
+            if (!isActive) return "text-slate-600 hover:bg-slate-50 hover:text-slate-900 hover:scale-[1.02]";
+            switch (item.accent) {
+              case "lavender":
+                return "bg-pastel-lavender-50 text-slate-900 border border-pastel-lavender-200 shadow-soft-sm";
+              case "mint":
+                return "bg-pastel-mint-50 text-slate-900 border border-pastel-mint-200 shadow-soft-sm";
+              case "sky":
+                return "bg-pastel-sky-50 text-slate-900 border border-pastel-sky-200 shadow-soft-sm";
+              case "peach":
+                return "bg-pastel-peach-50 text-slate-900 border border-pastel-peach-200 shadow-soft-sm";
+              default:
+                return "bg-slate-50 text-slate-900 border border-slate-200 shadow-soft-sm";
+            }
+          };
+
+          const getIconColor = () => {
+            if (!isActive) return "text-slate-400 group-hover:text-slate-600";
+            switch (item.accent) {
+              case "lavender":
+                return "text-pastel-lavender-500";
+              case "mint":
+                return "text-pastel-mint-500";
+              case "sky":
+                return "text-pastel-sky-500";
+              case "peach":
+                return "text-pastel-peach-500";
+              default:
+                return "text-slate-700";
+            }
+          };
+
           return (
             <Link
               key={item.name}
               href={item.href}
-              className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-300 ${
-                isActive
-                  ? item.accent === "lavender"
-                    ? "bg-pastel-lavender-50 text-slate-900 border border-pastel-lavender-200 shadow-soft-sm"
-                    : "bg-pastel-mint-50 text-slate-900 border border-pastel-mint-200 shadow-soft-sm"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 hover:scale-[1.02]"
-              }`}
+              className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-300 ${getActiveClass()}`}
             >
               <Icon
-                className={`h-5 w-5 shrink-0 transition-transform duration-300 group-hover:scale-110 ${
-                  isActive
-                    ? item.accent === "lavender"
-                      ? "text-pastel-lavender-500"
-                      : "text-pastel-mint-500"
-                    : "text-slate-400 group-hover:text-slate-600"
-                }`}
+                className={`h-5 w-5 shrink-0 transition-transform duration-300 group-hover:scale-110 ${getIconColor()}`}
               />
               {!collapsed && (
                 <div className="flex flex-1 items-center justify-between">
@@ -115,7 +188,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
                       className={`rounded-md px-2 py-0.5 text-[11px] font-medium border ${
                         item.accent === "lavender"
                           ? "bg-pastel-lavender-100/60 text-slate-700 border-pastel-lavender-200"
-                          : "bg-pastel-mint-100/60 text-slate-700 border-pastel-mint-200"
+                          : item.accent === "mint"
+                          ? "bg-pastel-mint-100/60 text-slate-700 border-pastel-mint-200"
+                          : item.accent === "sky"
+                          ? "bg-pastel-sky-100/60 text-slate-700 border-pastel-sky-200"
+                          : "bg-pastel-peach-100/60 text-slate-700 border-pastel-peach-200"
                       }`}
                     >
                       {item.badge}
@@ -128,10 +205,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         })}
       </div>
 
-      {/* Agency Subdomain & Environment footer card */}
+      {/* User Role Card & Agency Subdomain */}
       {!collapsed && (
-        <div className="p-3">
-          <div className="rounded-lg border border-pastel-peach-200 bg-pastel-peach-50/70 p-3.5 transition-all duration-300 hover:scale-[1.02] hover:shadow-soft-md">
+        <div className="space-y-2 p-3">
+          {/* Active Role Card */}
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2.5 text-xs">
+            <Shield className="h-4 w-4 text-pastel-lavender-500 shrink-0" />
+            <div className="truncate">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                Current Role
+              </p>
+              <p className="font-semibold text-slate-800 text-xs truncate">
+                {roleLabels[role] || "Team Member"}
+              </p>
+            </div>
+          </div>
+
+          {/* Environment Portal Badge */}
+          <div className="rounded-lg border border-pastel-peach-200 bg-pastel-peach-50/70 p-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-soft-md">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-800">
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-sm bg-pastel-mint-400" />
@@ -146,4 +237,3 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
     </aside>
   );
 };
-

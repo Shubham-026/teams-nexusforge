@@ -2,10 +2,11 @@
 
 import React, { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { LogOut, Bell, ShieldCheck, User as UserIcon } from "lucide-react";
+import { LogOut, ShieldCheck } from "lucide-react";
+import { UserRole } from "@/lib/types";
 
 export const Header: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, role, teamMember, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
@@ -19,13 +20,29 @@ export const Header: React.FC = () => {
     }
   };
 
-  const displayName = user?.displayName || user?.email?.split("@")[0] || "Agency Staff";
-  const initials = displayName
+  const displayName = teamMember?.name || user?.displayName || user?.email?.split("@")[0] || "Agency Staff";
+  const initials = (teamMember?.avatar_initials || displayName)
     .split(" ")
-    .map((n) => n[0])
+    .map((n: string) => n[0])
     .join("")
     .substring(0, 2)
     .toUpperCase();
+
+  const roleTitles: Record<UserRole, string> = {
+    admin: "Admin / CTO",
+    ceo: "CEO",
+    sales_manager: "Sales Manager",
+    lead_manager: "Lead Manager",
+    member: "Team Member",
+  };
+
+  const roleColors: Record<UserRole, string> = {
+    admin: "bg-pastel-lavender-50 text-pastel-lavender-500 border-pastel-lavender-200",
+    ceo: "bg-pastel-peach-50 text-pastel-peach-500 border-pastel-peach-200",
+    sales_manager: "bg-pastel-sky-50 text-pastel-sky-500 border-pastel-sky-200",
+    lead_manager: "bg-pastel-mint-50 text-pastel-mint-500 border-pastel-mint-200",
+    member: "bg-slate-50 text-slate-600 border-slate-200",
+  };
 
   return (
     <header className="sticky top-0 z-10 flex h-16 w-full items-center justify-between border-b border-slate-200/80 bg-white/90 px-6 backdrop-blur-md">
@@ -50,9 +67,18 @@ export const Header: React.FC = () => {
             {initials}
           </div>
           <div className="text-left hidden md:block">
-            <p className="text-xs font-semibold text-slate-800 leading-tight">
-              {displayName}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold text-slate-800 leading-tight">
+                {displayName}
+              </p>
+              <span
+                className={`rounded border px-1.5 py-0.2 text-[9px] font-semibold ${
+                  roleColors[role] || roleColors.member
+                }`}
+              >
+                {roleTitles[role] || "Member"}
+              </span>
+            </div>
             <p className="text-[11px] font-mono text-slate-400 leading-tight truncate max-w-[150px]">
               {user?.email || "authenticated-member"}
             </p>
@@ -73,4 +99,3 @@ export const Header: React.FC = () => {
     </header>
   );
 };
-

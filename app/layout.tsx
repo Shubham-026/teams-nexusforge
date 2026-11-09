@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { ToastProvider } from "@/context/ToastContext";
+import { VideoLoader } from "@/components/ui/VideoLoader";
 
 export const metadata: Metadata = {
   title: "NexusForge Agency - Internal Team Portal",
@@ -16,6 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased">
+        <VideoLoader />
         <AuthProvider>
           <ToastProvider>{children}</ToastProvider>
         </AuthProvider>

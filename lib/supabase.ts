@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { auth } from "./firebase";
-import { Task, ContentItem, TaskStatus, TeamMember } from "./types";
+import { Task, ContentItem, TaskStatus, TeamMember, CRMLead, UserRole, LeadStatus } from "./types";
 
 const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
 // Auto-sanitize URL to strip any accidental /rest/v1 or trailing slashes
@@ -233,8 +233,28 @@ export async function deleteContentItem(id: string): Promise<void> {
 // REAL-TIME & PROFILE SYNCHRONIZATION
 // ==========================================
 
-export async function syncUserProfile(user: { uid: string; email?: string | null; displayName?: string | null }): Promise<void> {
-  if (!user.uid || !user.email) return;
+export async function getCurrentUserProfile(uid: string): Promise<TeamMember | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("team_members")
+      .select("*")
+      .eq("id", uid)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Could not fetch user profile:", error.message);
+      return null;
+    }
+    return data as TeamMember | null;
+  } catch (err) {
+    console.warn("Error fetching current user profile:", err);
+    return null;
+  }
+}
+
+export async function syncUserProfile(user: { uid: string; email?: string | null; displayName?: string | null }): Promise<UserRole> {
+  if (!user.uid || !user.email) return "member";
   try {
     const client = getSupabaseClient();
     const initials = (user.displayName || user.email.split("@")[0])
@@ -244,20 +264,104 @@ export async function syncUserProfile(user: { uid: string; email?: string | null
       .slice(0, 2)
       .toUpperCase();
 
-    await client.from("team_members").upsert(
+    // Check if user already exists
+    const { data: existing } = await client
+      .from("team_members")
+      .select("role")
+      .eq("id", user.uid)
+      .maybeSingle();
+
+    let assignedRole: UserRole = (existing?.role as UserRole) || "member";
+
+    // Auto-detect Admin / CTO founder credentials
+    const isOwner = user.email.toLowerCase().includes("shubham") || user.email.toLowerCase().includes("admin");
+    if (isOwner) {
+      assignedRole = "admin";
+    }
+
+    const { error } = await client.from("team_members").upsert(
       {
         id: user.uid,
         name: user.displayName || user.email.split("@")[0],
         email: user.email,
-        role: "Agency Staff",
+        role: assignedRole,
         avatar_initials: initials,
-        color: "lavender",
+        color: assignedRole === "admin" ? "lavender" : assignedRole === "ceo" ? "peach" : "mint",
       },
       { onConflict: "id" }
     );
+
+    if (error) {
+      console.warn("Could not sync user profile to Supabase:", error.message);
+    }
+
+    return assignedRole;
   } catch (err) {
     console.warn("Could not sync user profile to Supabase:", err);
+    return "member";
   }
+}
+
+// ==========================================
+// CRM LEADS API FUNCTIONS
+// ==========================================
+
+export async function getCRMLeads(): Promise<CRMLead[]> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from("crm_leads")
+    .select("*, assigned_member:team_members(*)")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("Supabase getCRMLeads error:", error.message);
+    return [];
+  }
+  return (data || []) as CRMLead[];
+}
+
+export async function createCRMLead(lead: Partial<CRMLead>): Promise<CRMLead> {
+  const client = getSupabaseClient();
+  const payload = {
+    company_name: lead.company_name,
+    contact_person: lead.contact_person,
+    email: lead.email,
+    phone: lead.phone || null,
+    status: lead.status || "new",
+    value: lead.value || 0,
+    assigned_to: lead.assigned_to || null,
+    notes: lead.notes || null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await client
+    .from("crm_leads")
+    .insert([payload])
+    .select("*, assigned_member:team_members(*)")
+    .single();
+
+  if (error) {
+    console.error("Supabase createCRMLead error:", error);
+    throw error;
+  }
+  return data as CRMLead;
+}
+
+export async function updateCRMLeadStatus(id: string, status: LeadStatus): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client
+    .from("crm_leads")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) throw error;
+}
+
+export async function deleteCRMLead(id: string): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client.from("crm_leads").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export function subscribeToTasks(onUpdate: () => void): () => void {
