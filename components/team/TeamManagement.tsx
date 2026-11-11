@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { TeamMember, UserRole } from "@/lib/types";
-import { getTeamMembers } from "@/lib/supabase";
+import { getTeamMembers, getSupabaseClient } from "@/lib/supabase";
 import { createTeamUser, deleteTeamUser, updateTeamUserRole } from "@/app/actions/adminUserActions";
 import { useToast } from "@/context/ToastContext";
 import { useAuth } from "@/context/AuthContext";
@@ -21,6 +21,8 @@ import {
   Briefcase,
   Crown,
   TrendingUp,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export const TeamManagement: React.FC = () => {
@@ -37,6 +39,9 @@ export const TeamManagement: React.FC = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [role, setRole] = useState<UserRole>("member");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -56,8 +61,39 @@ export const TeamManagement: React.FC = () => {
     fetchMembers();
   }, []);
 
+  const resetModalState = () => {
+    setName("");
+    setEmail("");
+    setPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setRole("member");
+  };
+
+  const handleOpenModal = () => {
+    resetModalState();
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    resetModalState();
+    setIsModalOpen(false);
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (password.length < 6) {
+      toastError("Password Too Short", "Password must be at least 6 characters.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      toastError("Password Mismatch", "Password and Confirm Password do not match.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -72,12 +108,8 @@ export const TeamManagement: React.FC = () => {
         throw new Error(res.error || "Failed to create user");
       }
 
-      success("User Provisioned", `Account created for ${name} (${role})`);
-      setIsModalOpen(false);
-      setName("");
-      setEmail("");
-      setPassword("");
-      setRole("member");
+      success("User Provisioned", `Account created in Firebase & Supabase for ${name} (${role})`);
+      handleCloseModal();
       await fetchMembers();
     } catch (err: any) {
       toastError("Provision Failed", err?.message || "Failed to create user");
@@ -86,14 +118,29 @@ export const TeamManagement: React.FC = () => {
     }
   };
 
-  const handleDeleteUser = async (uid: string, memberName: string) => {
-    if (uid === currentUser?.uid) {
+  const handleDeleteUser = async (uid: string, memberName: string, email?: string) => {
+    if (uid === currentUser?.uid || email === currentUser?.email) {
       toastError("Restricted Action", "You cannot delete your own Administrator account");
       return;
     }
 
     try {
-      const res = await deleteTeamUser(uid);
+      // 1. Direct Supabase client delete as optimistic safeguard
+      try {
+        const client = getSupabaseClient();
+        let query = client.from("team_members").delete();
+        if (email) {
+          query = query.or(`id.eq.${uid},email.ilike.${email}`);
+        } else {
+          query = query.eq("id", uid);
+        }
+        await query;
+      } catch (clientErr) {
+        console.warn("Client-side Supabase delete fallback notice:", clientErr);
+      }
+
+      // 2. Server Action to clean up Firebase Auth & Supabase
+      const res = await deleteTeamUser(uid, email);
       if (!res.success) {
         throw new Error(res.error || "Failed to delete user");
       }
@@ -105,19 +152,58 @@ export const TeamManagement: React.FC = () => {
     }
   };
 
-  const handleRoleChange = async (uid: string, newRole: UserRole) => {
-    if (uid === currentUser?.uid) {
+  const handleRoleChange = async (uid: string, newRole: UserRole, email?: string) => {
+    if (uid === currentUser?.uid || (email && email === currentUser?.email)) {
       toastError("Restricted Action", "You cannot change your own Administrator role");
       return;
     }
 
+    // Optimistically update the UI table instantly
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === uid || (email && m.email === email)
+          ? { ...m, role: newRole }
+          : m
+      )
+    );
+
     try {
-      const res = await updateTeamUserRole(uid, newRole);
-      if (!res.success) throw new Error(res.error);
+      // 1. Direct Supabase update from authenticated client
+      const roleColors: Record<UserRole, string> = {
+        admin: "lavender",
+        ceo: "peach",
+        sales_manager: "sky",
+        lead_manager: "mint",
+        member: "lavender",
+      };
+
+      try {
+        const client = getSupabaseClient();
+        let query = client
+          .from("team_members")
+          .update({ role: newRole, color: roleColors[newRole] || "lavender" });
+
+        if (email) {
+          query = query.or(`id.eq.${uid},email.ilike.${email}`);
+        } else {
+          query = query.eq("id", uid);
+        }
+        await query;
+      } catch (directErr) {
+        console.warn("Direct Supabase update notice:", directErr);
+      }
+
+      // 2. Server Action to sync Firebase claims and verify database
+      const res = await updateTeamUserRole(uid, newRole, email);
+      if (!res.success) {
+        throw new Error(res.error);
+      }
+
       success("Role Updated", `Role updated to ${newRole}`);
       await fetchMembers();
     } catch (err: any) {
       toastError("Update Failed", err?.message || "Failed to update role");
+      await fetchMembers(); // Revert to source of truth on failure
     }
   };
 
@@ -145,20 +231,9 @@ export const TeamManagement: React.FC = () => {
     }
   };
 
-  const roleTitle = (r: UserRole) => {
-    switch (r) {
-      case "admin":
-        return "Admin / CTO";
-      case "ceo":
-        return "CEO";
-      case "sales_manager":
-        return "Sales Manager";
-      case "lead_manager":
-        return "Lead Manager";
-      default:
-        return "Team Member";
-    }
-  };
+  // Password matching check
+  const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
+  const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   return (
     <div className="space-y-6">
@@ -174,13 +249,13 @@ export const TeamManagement: React.FC = () => {
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Provision team accounts, assign RBAC permissions, and manage organization credentials.
+            Provision team accounts, assign RBAC permissions, and manage organization credentials in Firebase & Supabase.
           </p>
         </div>
 
         {/* Add User Action Button */}
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={handleOpenModal}
           className="flex items-center gap-2 rounded-md border border-pastel-lavender-300 bg-pastel-lavender-500 px-4 py-2.5 text-xs font-semibold text-white shadow-soft-sm transition-all duration-300 hover:scale-[1.02] hover:bg-pastel-lavender-400 hover:shadow-md active:scale-95"
         >
           <UserPlus className="h-4 w-4" />
@@ -337,7 +412,7 @@ export const TeamManagement: React.FC = () => {
                           value={member.role}
                           disabled={isCurrent}
                           onChange={(e) =>
-                            handleRoleChange(member.id, e.target.value as UserRole)
+                            handleRoleChange(member.id, e.target.value as UserRole, member.email)
                           }
                           className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition-all ${
                             roleBadgeStyle(member.role)
@@ -389,7 +464,7 @@ export const TeamManagement: React.FC = () => {
                         ) : deleteConfirmId === member.id ? (
                           <div className="flex items-center justify-end gap-1.5">
                             <button
-                              onClick={() => handleDeleteUser(member.id, member.name)}
+                              onClick={() => handleDeleteUser(member.id, member.name, member.email)}
                               className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-100"
                             >
                               Confirm
@@ -440,7 +515,7 @@ export const TeamManagement: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={handleCloseModal}
                 className="rounded-md border border-slate-200 p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-600"
               >
                 <X className="h-4 w-4" />
@@ -460,7 +535,7 @@ export const TeamManagement: React.FC = () => {
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Atul Sharma"
+                    placeholder="e.g. Vikram Malhotra"
                     className="w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 shadow-soft-sm focus:border-pastel-lavender-400 focus:outline-none focus:ring-2 focus:ring-pastel-lavender-100"
                   />
                 </div>
@@ -477,28 +552,97 @@ export const TeamManagement: React.FC = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. atul@nexusforgeagency.in"
+                    placeholder="e.g. vikram@nexusforgeagency.in"
                     className="w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 shadow-soft-sm focus:border-pastel-lavender-400 focus:outline-none focus:ring-2 focus:ring-pastel-lavender-100"
                   />
                 </div>
               </div>
 
+              {/* Password with See Password option */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Initial Password
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Initial Password
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-mono">min 6 chars</span>
+                </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     required
                     minLength={6}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 6 characters"
-                    className="w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 shadow-soft-sm focus:border-pastel-lavender-400 focus:outline-none focus:ring-2 focus:ring-pastel-lavender-100"
+                    placeholder="••••••••••••"
+                    className="w-full rounded-md border border-slate-200 bg-white pl-9 pr-10 py-2 text-xs text-slate-800 placeholder-slate-400 shadow-soft-sm focus:border-pastel-lavender-400 focus:outline-none focus:ring-2 focus:ring-pastel-lavender-100"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
+              </div>
+
+              {/* Confirm Password with See Password option */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    className={`w-full rounded-md border bg-white pl-9 pr-10 py-2 text-xs text-slate-800 placeholder-slate-400 shadow-soft-sm focus:outline-none focus:ring-2 ${
+                      passwordsMismatch
+                        ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
+                        : passwordsMatch
+                        ? "border-pastel-mint-300 focus:border-pastel-mint-400 focus:ring-pastel-mint-100"
+                        : "border-slate-200 focus:border-pastel-lavender-400 focus:ring-pastel-lavender-100"
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    tabIndex={-1}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
+                    title={showConfirmPassword ? "Hide password" : "Show password"}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Password match indicator */}
+                {passwordsMatch && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-pastel-mint-600 font-medium mt-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>Passwords match perfectly</span>
+                  </div>
+                )}
+                {passwordsMismatch && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-rose-500 font-medium mt-1">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <span>Passwords do not match</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -521,17 +665,17 @@ export const TeamManagement: React.FC = () => {
               <div className="mt-5 flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="rounded-md border border-pastel-lavender-300 bg-pastel-lavender-500 px-4 py-2 text-xs font-semibold text-white shadow-soft-sm hover:bg-pastel-lavender-400 disabled:opacity-50"
+                  disabled={submitting || passwordsMismatch}
+                  className="rounded-md border border-pastel-lavender-300 bg-pastel-lavender-500 px-4 py-2 text-xs font-semibold text-white shadow-soft-sm hover:bg-pastel-lavender-400 disabled:opacity-50 transition-all active:scale-95"
                 >
-                  {submitting ? "Creating..." : "Provision Account"}
+                  {submitting ? "Provisioning..." : "Provision Account"}
                 </button>
               </div>
             </form>

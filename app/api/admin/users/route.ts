@@ -14,34 +14,102 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create Firebase Auth user
-    const userRecord = await adminAuth.createUser({
-      email,
-      password,
-      displayName: name,
-      emailVerified: true,
-    });
+    let firebaseUid: string = "";
+    let firebaseCreated = false;
 
-    // Set custom claims
-    await adminAuth.setCustomUserClaims(userRecord.uid, { role });
+    // Strategy A: Firebase Admin SDK
+    if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+      try {
+        const userRecord = await adminAuth.createUser({
+          email,
+          password,
+          displayName: name,
+          emailVerified: true,
+        });
+        firebaseUid = userRecord.uid;
+        firebaseCreated = true;
+        try {
+          await adminAuth.setCustomUserClaims(userRecord.uid, { role });
+        } catch (claimsErr) {
+          console.warn("Could not set custom claims:", claimsErr);
+        }
+      } catch (adminErr: any) {
+        console.warn("adminAuth.createUser failed, falling back to REST API:", adminErr?.message);
+      }
+    }
+
+    // Strategy B: Identity Toolkit REST API
+    if (!firebaseCreated) {
+      const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+      if (!apiKey) {
+        return NextResponse.json(
+          { error: "Missing NEXT_PUBLIC_FIREBASE_API_KEY" },
+          { status: 500 }
+        );
+      }
+
+      const signUpRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email,
+            password,
+            returnSecureToken: true,
+          }),
+        }
+      );
+
+      const signUpData = await signUpRes.json();
+      if (!signUpRes.ok || signUpData.error) {
+        return NextResponse.json(
+          { error: signUpData.error?.message || "Firebase Auth registration failed" },
+          { status: 400 }
+        );
+      }
+
+      firebaseUid = signUpData.localId;
+      const idToken = signUpData.idToken;
+
+      if (idToken && name) {
+        try {
+          await fetch(
+            `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                idToken,
+                displayName: name,
+                returnSecureToken: false,
+              }),
+            }
+          );
+        } catch (nameErr) {
+          console.warn("Failed to set displayName on Firebase user:", nameErr);
+        }
+      }
+    }
 
     // Sync into Supabase
-    const initials = name
-      .split(" ")
-      .map((n: string) => n[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase() || "NF";
+    const initials =
+      name
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase() || "NF";
 
     const client = getSupabaseClient();
     await client.from("team_members").upsert(
       {
-        id: userRecord.uid,
+        id: firebaseUid,
         name,
         email,
         role,
         avatar_initials: initials,
-        color: role === "admin" ? "lavender" : "mint",
+        color: role === "admin" ? "lavender" : role === "ceo" ? "peach" : "mint",
       },
       { onConflict: "id" }
     );
@@ -49,7 +117,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       user: {
-        id: userRecord.uid,
+        id: firebaseUid,
         name,
         email,
         role,
@@ -74,7 +142,9 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
-      await adminAuth.deleteUser(uid);
+      if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+        await adminAuth.deleteUser(uid);
+      }
     } catch (fbErr: any) {
       console.warn("Firebase deleteUser note:", fbErr?.message);
     }
@@ -91,4 +161,3 @@ export async function DELETE(req: NextRequest) {
     );
   }
 }
-

@@ -8,7 +8,7 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { auth, googleProvider, firebaseSignOut } from "@/lib/firebase";
-import { syncUserProfile, getCurrentUserProfile } from "@/lib/supabase";
+import { syncUserProfile, getCurrentUserProfile, getSupabaseClient } from "@/lib/supabase";
 import { UserRole, TeamMember } from "@/lib/types";
 
 interface AuthContextType {
@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       // 1. Sync & retrieve role from Supabase
       const assignedRole = await syncUserProfile(currentUser);
-      const profile = await getCurrentUserProfile(currentUser.uid);
+      const profile = await getCurrentUserProfile(currentUser.uid, currentUser.email);
       if (profile) {
         setTeamMember(profile);
         setRole(profile.role);
@@ -78,6 +78,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
+    let channel: any = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
@@ -86,11 +88,44 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setIdToken(token);
           document.cookie = `auth_token=${token}; path=/; max-age=604800; SameSite=Lax`;
           await fetchProfileAndRole(currentUser);
+
+          // Setup real-time listener for live role & profile updates
+          const client = getSupabaseClient();
+          channel = client
+            .channel(`realtime:role_sync:${currentUser.uid}`)
+            .on(
+              "postgres_changes",
+              {
+                event: "*",
+                schema: "public",
+                table: "team_members",
+              },
+              (payload: any) => {
+                const newRecord = payload.new as TeamMember;
+                if (!newRecord) return;
+                const matchesUser =
+                  newRecord.id === currentUser.uid ||
+                  (newRecord.email &&
+                    newRecord.email.toLowerCase() ===
+                      currentUser.email?.toLowerCase());
+
+                if (matchesUser) {
+                  setTeamMember(newRecord);
+                  setRole(newRecord.role);
+                  document.cookie = `user_role=${newRecord.role}; path=/; max-age=604800; SameSite=Lax`;
+                }
+              }
+            )
+            .subscribe();
         } catch (err) {
-          console.error("Error retrieving ID token:", err);
+          console.error("Error retrieving ID token or setting up role sync:", err);
           setIdToken(null);
         }
       } else {
+        if (channel) {
+          const client = getSupabaseClient();
+          client.removeChannel(channel);
+        }
         setIdToken(null);
         setTeamMember(null);
         setRole("member");
@@ -100,7 +135,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (channel) {
+        const client = getSupabaseClient();
+        client.removeChannel(channel);
+      }
+    };
   }, []);
 
   const refreshProfile = async () => {
@@ -112,7 +153,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signInWithGoogle = async () => {
     setLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const res = await signInWithPopup(auth, googleProvider);
+      if (res.user) {
+        const token = await res.user.getIdToken();
+        setIdToken(token);
+        document.cookie = `auth_token=${token}; path=/; max-age=604800; SameSite=Lax`;
+        await fetchProfileAndRole(res.user);
+      }
     } finally {
       setLoading(false);
     }
@@ -121,7 +168,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signInWithEmail = async (email: string, pass: string) => {
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
+      const res = await signInWithEmailAndPassword(auth, email, pass);
+      if (res.user) {
+        const token = await res.user.getIdToken();
+        setIdToken(token);
+        document.cookie = `auth_token=${token}; path=/; max-age=604800; SameSite=Lax`;
+        await fetchProfileAndRole(res.user);
+      }
     } finally {
       setLoading(false);
     }
@@ -153,10 +206,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Strict constraints:
   // - CMS: Admin/CTO exclusive
   // - Team Management: Admin/CTO exclusive
-  // - CRM Leads: Admin, CEO, Sales Manager
+  // - CRM Leads: Admin, CEO, Sales Manager, Lead Manager
   const canAccessCMS = isAdmin;
   const canManageUsers = isAdmin;
-  const canAccessCRM = isAdmin || isCEO || isSales;
+  const canAccessCRM = isAdmin || isCEO || isSales || isLead;
 
   return (
     <AuthContext.Provider

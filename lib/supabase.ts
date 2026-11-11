@@ -233,14 +233,16 @@ export async function deleteContentItem(id: string): Promise<void> {
 // REAL-TIME & PROFILE SYNCHRONIZATION
 // ==========================================
 
-export async function getCurrentUserProfile(uid: string): Promise<TeamMember | null> {
+export async function getCurrentUserProfile(uid: string, email?: string | null): Promise<TeamMember | null> {
   try {
     const client = getSupabaseClient();
-    const { data, error } = await client
-      .from("team_members")
-      .select("*")
-      .eq("id", uid)
-      .maybeSingle();
+    let query = client.from("team_members").select("*");
+    if (email && email.trim()) {
+      query = query.or(`id.eq.${uid},email.ilike.${email.trim()}`);
+    } else {
+      query = query.eq("id", uid);
+    }
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.warn("Could not fetch user profile:", error.message);
@@ -257,42 +259,71 @@ export async function syncUserProfile(user: { uid: string; email?: string | null
   if (!user.uid || !user.email) return "member";
   try {
     const client = getSupabaseClient();
-    const initials = (user.displayName || user.email.split("@")[0])
+    const cleanEmail = user.email.toLowerCase().trim();
+    const initials = (user.displayName || cleanEmail.split("@")[0])
       .split(" ")
       .map((n) => n[0])
       .join("")
       .slice(0, 2)
       .toUpperCase();
 
-    // Check if user already exists
+    // 1. Check if user already exists by Firebase UID OR Email
     const { data: existing } = await client
       .from("team_members")
-      .select("role")
-      .eq("id", user.uid)
+      .select("*")
+      .or(`id.eq.${user.uid},email.ilike.${cleanEmail}`)
       .maybeSingle();
 
-    let assignedRole: UserRole = (existing?.role as UserRole) || "member";
+    // Founder / CTO auto-admin check
+    const isOwner = cleanEmail.includes("shubham") || cleanEmail.includes("admin");
 
-    // Auto-detect Admin / CTO founder credentials
-    const isOwner = user.email.toLowerCase().includes("shubham") || user.email.toLowerCase().includes("admin");
-    if (isOwner) {
-      assignedRole = "admin";
+    if (existing) {
+      // User exists! CRITICAL: Maintain their assigned role from the database.
+      // Do NOT overwrite their existing role!
+      const finalRole: UserRole = isOwner ? "admin" : (existing.role as UserRole) || "member";
+
+      // If their id in Supabase was different from their Firebase UID, update it now
+      const { error: updateError } = await client
+        .from("team_members")
+        .update({
+          id: user.uid,
+          name: user.displayName || existing.name,
+          avatar_initials: initials,
+          ...(isOwner ? { role: "admin" } : {}),
+        })
+        .or(`id.eq.${user.uid},email.ilike.${cleanEmail}`);
+
+      if (updateError) {
+        console.warn("Warning syncing user ID to Supabase:", updateError.message);
+      }
+
+      return finalRole;
     }
 
-    const { error } = await client.from("team_members").upsert(
+    // 2. User is brand new (first login)
+    const assignedRole: UserRole = isOwner ? "admin" : "member";
+    const roleColors: Record<UserRole, string> = {
+      admin: "lavender",
+      ceo: "peach",
+      sales_manager: "sky",
+      lead_manager: "mint",
+      member: "lavender",
+    };
+
+    const { error: insertError } = await client.from("team_members").insert([
       {
         id: user.uid,
-        name: user.displayName || user.email.split("@")[0],
-        email: user.email,
+        name: user.displayName || cleanEmail.split("@")[0],
+        email: cleanEmail,
         role: assignedRole,
         avatar_initials: initials,
-        color: assignedRole === "admin" ? "lavender" : assignedRole === "ceo" ? "peach" : "mint",
+        color: roleColors[assignedRole] || "lavender",
+        created_at: new Date().toISOString(),
       },
-      { onConflict: "id" }
-    );
+    ]);
 
-    if (error) {
-      console.warn("Could not sync user profile to Supabase:", error.message);
+    if (insertError) {
+      console.warn("Could not insert brand new user profile to Supabase:", insertError.message);
     }
 
     return assignedRole;
@@ -300,6 +331,26 @@ export async function syncUserProfile(user: { uid: string; email?: string | null
     console.warn("Could not sync user profile to Supabase:", err);
     return "member";
   }
+}
+
+export async function updateCurrentUserProfile(
+  uid: string,
+  updates: { name?: string; avatar_initials?: string; color?: string },
+  email?: string | null
+): Promise<TeamMember | null> {
+  const client = getSupabaseClient();
+  let query = client.from("team_members").update(updates);
+  if (email && email.trim()) {
+    query = query.or(`id.eq.${uid},email.ilike.${email.toLowerCase().trim()}`);
+  } else {
+    query = query.eq("id", uid);
+  }
+  const { data, error } = await query.select().maybeSingle();
+  if (error) {
+    console.error("updateCurrentUserProfile error:", error);
+    throw error;
+  }
+  return data as TeamMember | null;
 }
 
 // ==========================================

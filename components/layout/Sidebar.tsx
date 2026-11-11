@@ -14,6 +14,7 @@ import {
   Sparkles,
   ExternalLink,
   Shield,
+  UserCheck,
 } from "lucide-react";
 import { UserRole } from "@/lib/types";
 
@@ -80,6 +81,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
       badge: "RBAC",
       accent: "peach",
       visible: canManageUsers,
+    },
+    // Personal Profile & Security (Accessible to all users)
+    {
+      name: "My Profile",
+      href: "/profile",
+      icon: UserCheck,
+      badge: "Account",
+      accent: "lavender",
+      visible: true,
     },
   ].filter((item) => item.visible);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { LogOut, ShieldCheck } from "lucide-react";
 import { UserRole } from "@/lib/types";
@@ -60,8 +61,12 @@ export const Header: React.FC = () => {
 
       {/* Right controls: User profile & Logout */}
       <div className="flex items-center gap-3">
-        {/* Firebase Authenticated User Card */}
-        <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-1.5 pr-3 transition-all duration-300 hover:scale-[1.02] hover:bg-white hover:shadow-soft-sm">
+        {/* Firebase Authenticated User Card -> Links to /profile */}
+        <Link
+          href="/profile"
+          title="Manage your profile & password settings"
+          className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-1.5 pr-3 transition-all duration-300 hover:scale-[1.02] hover:bg-white hover:border-pastel-lavender-300 hover:shadow-soft-sm active:scale-95"
+        >
           {/* Strict soft square avatar (no rounded-full) */}
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-pastel-mint-100 border border-pastel-mint-200 text-xs font-semibold text-pastel-mint-500 shadow-soft-sm">
             {initials}
@@ -83,7 +88,7 @@ export const Header: React.FC = () => {
               {user?.email || "authenticated-member"}
             </p>
           </div>
-        </div>
+        </Link>
 
         {/* Logout Button */}
         <button
