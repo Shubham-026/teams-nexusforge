@@ -8,7 +8,7 @@ export function middleware(request: NextRequest) {
   const role = request.cookies.get("user_role")?.value;
   const token = request.cookies.get("auth_token")?.value;
 
-  // 1. Strict Protection for Website CMS: Admin / CTO ONLY
+  // 1. Strict Protection for Website CMS: Admin / CTO ONLY (Core Technical Functionality)
   if (pathname.startsWith("/cms")) {
     if (role !== "admin") {
       const url = request.nextUrl.clone();
@@ -18,9 +18,9 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // 2. Strict Protection for Team Management: Admin / CTO ONLY
+  // 2. Strict Protection for Team & Role Governance: Admin / CTO & CEO ONLY
   if (pathname.startsWith("/team")) {
-    if (role !== "admin") {
+    if (role !== "admin" && role !== "ceo") {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks";
       url.searchParams.set("access_denied", "team_admin_only");
@@ -30,7 +30,11 @@ export function middleware(request: NextRequest) {
 
   // 3. Strict Protection for CRM / Leads: Sales Manager, Lead Manager, CEO, Admin ONLY
   if (pathname.startsWith("/crm")) {
-    const allowed = role === "admin" || role === "ceo" || role === "sales_manager" || role === "lead_manager";
+    const allowed =
+      role === "admin" ||
+      role === "ceo" ||
+      role === "sales_manager" ||
+      role === "lead_manager";
     if (!allowed) {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks";
@@ -49,4 +53,3 @@ export const config = {
     "/crm/:path*",
   ],
 };
-

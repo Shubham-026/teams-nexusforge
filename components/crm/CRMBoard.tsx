@@ -10,7 +10,7 @@ import {
   Plus,
   Mail,
   Phone,
-  DollarSign,
+  IndianRupee,
   Building,
   User as UserIcon,
   X,
@@ -160,7 +160,7 @@ export const CRMBoard: React.FC = () => {
             <TrendingUp className="h-4 w-4 text-pastel-sky-500" />
           </div>
           <p className="mt-2 text-2xl font-bold text-slate-900">
-            ${totalPipelineValue.toLocaleString()}
+            ₹{totalPipelineValue.toLocaleString()}
           </p>
           <p className="mt-0.5 text-[11px] text-slate-500 font-medium">
             Across {leads.length} active opportunities
@@ -173,7 +173,7 @@ export const CRMBoard: React.FC = () => {
             <CheckCircle className="h-4 w-4 text-pastel-mint-500" />
           </div>
           <p className="mt-2 text-2xl font-bold text-slate-900">
-            ${wonValue.toLocaleString()}
+            ₹{wonValue.toLocaleString()}
           </p>
           <p className="mt-0.5 text-[11px] text-pastel-mint-600 font-medium">
             {wonDeals.length} contracts signed
@@ -214,7 +214,7 @@ export const CRMBoard: React.FC = () => {
                   </span>
                 </div>
                 <span className="text-[10px] font-mono font-medium text-slate-500">
-                  ${colValue.toLocaleString()}
+                  ₹{colValue.toLocaleString()}
                 </span>
               </div>
 
@@ -240,7 +240,7 @@ export const CRMBoard: React.FC = () => {
                           </p>
                         </div>
                         <span className="rounded-md border border-pastel-mint-200 bg-pastel-mint-50 px-2 py-0.5 font-mono text-[11px] font-bold text-pastel-mint-600">
-                          ${Number(lead.value).toLocaleString()}
+                          ₹{Number(lead.value).toLocaleString()}
                         </span>
                       </div>
 
@@ -392,10 +392,10 @@ export const CRMBoard: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Estimated Deal Value ($)
+                  Estimated Deal Value (₹)
                 </label>
                 <div className="relative">
-                  <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <IndianRupee className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
                     type="number"
                     min={0}

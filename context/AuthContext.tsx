@@ -8,13 +8,20 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { auth, googleProvider, firebaseSignOut } from "@/lib/firebase";
-import { syncUserProfile, getCurrentUserProfile, getSupabaseClient } from "@/lib/supabase";
-import { UserRole, TeamMember } from "@/lib/types";
+import {
+  syncUserProfile,
+  getCurrentUserProfile,
+  getSupabaseClient,
+  getCustomRoles,
+  DEFAULT_ROLES,
+} from "@/lib/supabase";
+import { UserRole, TeamMember, CustomRole } from "@/lib/types";
 
 interface AuthContextType {
   user: User | null;
   teamMember: TeamMember | null;
   role: UserRole;
+  customRoles: CustomRole[];
   idToken: string | null;
   loading: boolean;
   isAdmin: boolean;
@@ -23,18 +30,21 @@ interface AuthContextType {
   isLead: boolean;
   canAccessCMS: boolean;
   canManageUsers: boolean;
+  canManageRoles: boolean;
   canAccessCRM: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
   refreshProfile: () => Promise<void>;
+  refreshRoles: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   teamMember: null,
   role: "member",
+  customRoles: DEFAULT_ROLES,
   idToken: null,
   loading: true,
   isAdmin: false,
@@ -43,20 +53,36 @@ const AuthContext = createContext<AuthContextType>({
   isLead: false,
   canAccessCMS: false,
   canManageUsers: false,
+  canManageRoles: false,
   canAccessCRM: false,
   signInWithGoogle: async () => {},
   signInWithEmail: async () => {},
   logout: async () => {},
   getIdToken: async () => null,
   refreshProfile: async () => {},
+  refreshRoles: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [teamMember, setTeamMember] = useState<TeamMember | null>(null);
   const [role, setRole] = useState<UserRole>("member");
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>(DEFAULT_ROLES);
   const [idToken, setIdToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+
+  const fetchRolesList = async () => {
+    try {
+      const roles = await getCustomRoles();
+      setCustomRoles(roles);
+    } catch (err) {
+      console.warn("Could not load custom roles:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchRolesList();
+  }, []);
 
   const fetchProfileAndRole = async (currentUser: User) => {
     try {
@@ -197,19 +223,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return token;
   };
 
-  // RBAC Permission Helpers
-  const isAdmin = role === "admin";
-  const isCEO = role === "ceo";
+  // RBAC Dynamic Permission Evaluation
+  const isAdmin = role === "admin"; // CTO (Root Admin)
+  const isCEO = role === "ceo"; // CEO (Executive)
   const isSales = role === "sales_manager";
   const isLead = role === "lead_manager";
 
-  // Strict constraints:
-  // - CMS: Admin/CTO exclusive
-  // - Team Management: Admin/CTO exclusive
-  // - CRM Leads: Admin, CEO, Sales Manager, Lead Manager
+  const currentRole = customRoles.find((r) => r.id === role);
+
+  // Strict constraints enforced per requirements:
+  // - CTO (Admin): ALL system access, including Website CMS core technical functionalities.
+  // - CEO: ALL system access, EXCEPT core technical functionalities (Website CMS).
+  // - Role Management (add/delete/customise access): Strictly CEO & CTO only.
+  // - Other roles: dynamically evaluate customized permissions stored in database.
   const canAccessCMS = isAdmin;
-  const canManageUsers = isAdmin;
-  const canAccessCRM = isAdmin || isCEO || isSales || isLead;
+  const canManageRoles = isAdmin || isCEO;
+  const canManageUsers =
+    isAdmin || isCEO || Boolean(currentRole?.can_manage_team);
+  const canAccessCRM =
+    isAdmin ||
+    isCEO ||
+    isSales ||
+    isLead ||
+    Boolean(currentRole?.can_access_crm);
 
   return (
     <AuthContext.Provider
@@ -217,6 +253,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         teamMember,
         role,
+        customRoles,
         idToken,
         loading,
         isAdmin,
@@ -225,12 +262,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         isLead,
         canAccessCMS,
         canManageUsers,
+        canManageRoles,
         canAccessCRM,
         signInWithGoogle,
         signInWithEmail,
         logout,
         getIdToken,
         refreshProfile,
+        refreshRoles: fetchRolesList,
       }}
     >
       {children}

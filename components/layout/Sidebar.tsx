@@ -26,10 +26,10 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const pathname = usePathname();
-  const { role, canAccessCMS, canManageUsers, canAccessCRM } = useAuth();
+  const { role, canAccessCMS, canManageUsers, canManageRoles, canAccessCRM, customRoles } = useAuth();
 
   // Role display label mapping
-  const roleLabels: Record<UserRole, string> = {
+  const roleLabels: Record<string, string> = {
     admin: "Admin / CTO",
     ceo: "CEO (Executive)",
     sales_manager: "Sales Manager",
@@ -37,12 +37,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
     member: "Team Member",
   };
 
-  const roleBadgeStyles: Record<UserRole, string> = {
-    admin: "bg-pastel-lavender-100 text-pastel-lavender-500 border-pastel-lavender-200",
-    ceo: "bg-pastel-peach-100 text-pastel-peach-500 border-pastel-peach-200",
-    sales_manager: "bg-pastel-sky-100 text-pastel-sky-500 border-pastel-sky-200",
-    lead_manager: "bg-pastel-mint-100 text-pastel-mint-500 border-pastel-mint-200",
-    member: "bg-slate-100 text-slate-600 border-slate-200",
+  const matchedRole = customRoles.find((r) => r.id === role);
+  const roleDisplayName = matchedRole?.name || roleLabels[role] || role;
+
+  const getRoleBadgeStyle = (r: string) => {
+    const customMatch = customRoles.find((cr) => cr.id === r);
+    const color = customMatch?.color || "slate";
+    switch (color) {
+      case "lavender":
+        return "bg-pastel-lavender-100 text-pastel-lavender-500 border-pastel-lavender-200";
+      case "peach":
+        return "bg-pastel-peach-100 text-pastel-peach-500 border-pastel-peach-200";
+      case "sky":
+        return "bg-pastel-sky-100 text-pastel-sky-500 border-pastel-sky-200";
+      case "mint":
+        return "bg-pastel-mint-100 text-pastel-mint-500 border-pastel-mint-200";
+      default:
+        return "bg-slate-100 text-slate-600 border-slate-200";
+    }
   };
 
   // Dynamic Navigation based on RBAC permissions
@@ -83,14 +95,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
       accent: "mint",
       visible: canAccessCMS,
     },
-    // Team Management (Strictly exclusive to Admin / CTO)
+    // Team & Role Governance (Exclusive to Admin / CTO and CEO)
     {
-      name: "Team Access",
+      name: "Team & Roles",
       href: "/team",
       icon: Users,
       badge: "RBAC",
       accent: "peach",
-      visible: canManageUsers,
+      visible: canManageUsers || canManageRoles,
     },
     // Personal Profile & Security (Accessible to all users)
     {
@@ -145,9 +157,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
                 Agency Modules
               </p>
               <span
-                className={`rounded border px-1.5 py-0.5 text-[9px] font-medium uppercase ${
-                  roleBadgeStyles[role] || roleBadgeStyles.member
-                }`}
+                className={`rounded border px-1.5 py-0.5 text-[9px] font-medium uppercase ${getRoleBadgeStyle(
+                  role
+                )}`}
               >
                 {role}
               </span>
@@ -236,7 +248,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
                 Current Role
               </p>
               <p className="font-semibold text-slate-800 text-xs truncate">
-                {roleLabels[role] || "Team Member"}
+                {roleDisplayName}
               </p>
             </div>
           </div>

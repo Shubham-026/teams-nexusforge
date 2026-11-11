@@ -202,3 +202,51 @@ create policy "Enable all on crm_leads"
   to public
   using (true)
   with check (true);
+
+-- ------------------------------------------------------------------------------
+-- E. CUSTOM ROLES & DYNAMIC RBAC GOVERNANCE (CEO / CTO ONLY)
+-- ------------------------------------------------------------------------------
+-- Drop check constraint on team_members to allow dynamic custom roles
+alter table public.team_members drop constraint if exists team_members_role_check;
+
+create table if not exists public.custom_roles (
+  id text primary key,
+  name text not null,
+  description text,
+  color text not null default 'lavender',
+  is_system boolean not null default false,
+  can_access_tasks boolean not null default true,
+  can_access_crm boolean not null default false,
+  can_access_cms boolean not null default false,
+  can_manage_team boolean not null default false,
+  can_manage_roles boolean not null default false,
+  created_at timestamptz default now()
+);
+
+alter table public.custom_roles enable row level security;
+
+drop policy if exists "Enable all on custom_roles" on public.custom_roles;
+create policy "Enable all on custom_roles"
+  on public.custom_roles
+  for all
+  to public
+  using (true)
+  with check (true);
+
+-- Pre-seed system and default roles
+insert into public.custom_roles (
+  id, name, description, color, is_system,
+  can_access_tasks, can_access_crm, can_access_cms, can_manage_team, can_manage_roles
+)
+values
+  ('admin', 'Admin / CTO', 'Full system control, Website CMS, and infrastructure access.', 'lavender', true, true, true, true, true, true),
+  ('ceo', 'CEO (Executive)', 'Executive oversight, agency analytics, and team governance (all except core CMS technical).', 'peach', true, true, true, false, true, true),
+  ('sales_manager', 'Sales Manager', 'Client acquisition tracking, outreach pipelines, and conversion analytics.', 'sky', false, true, true, false, false, false),
+  ('lead_manager', 'Lead Manager', 'Prospect qualification, outreach coordination, and lead pipeline.', 'mint', false, true, true, false, false, false),
+  ('member', 'Team Member', 'Task deliverables, kanban collaboration, and internal communications.', 'slate', false, true, false, false, false, false)
+on conflict (id) do update set
+  name = excluded.name,
+  description = excluded.description,
+  color = excluded.color,
+  is_system = excluded.is_system;
+
