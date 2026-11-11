@@ -133,99 +133,72 @@ alter table public.crm_leads enable row level security;
 -- ------------------------------------------------------------------------------
 -- A. TEAM MEMBERS POLICIES
 -- ------------------------------------------------------------------------------
+drop policy if exists "Nexus-Forge" on public.team_members;
 drop policy if exists "Allow read on team_members" on public.team_members;
 drop policy if exists "Allow users to manage own profile" on public.team_members;
 drop policy if exists "Allow upsert on team_members" on public.team_members;
 drop policy if exists "Allow all on team_members" on public.team_members;
 drop policy if exists "Admin manage team_members" on public.team_members;
+drop policy if exists "Allow all operations for team members" on public.team_members;
+drop policy if exists "Enable all operations on team_members" on public.team_members;
 
--- Everyone logged in can read the team directory (needed for assigning tasks & member avatars)
-create policy "Allow read on team_members"
-  on public.team_members for select
-  using (true);
-
--- Admin has full rights to insert, update, or delete team members
-create policy "Admin manage team_members"
-  on public.team_members for all
-  using (is_admin() or requesting_firebase_uid() = id)
-  with check (is_admin() or requesting_firebase_uid() = id);
+-- Allows reading the directory, profile syncing, and Admin user provisioning
+create policy "Enable all operations on team_members"
+  on public.team_members
+  for all
+  to public
+  using (true)
+  with check (true);
 
 -- ------------------------------------------------------------------------------
--- B. WEBSITE CMS POLICIES (STRICT: Admin-Only Exclusive Access)
+-- B. TASKS POLICIES
+-- ------------------------------------------------------------------------------
+drop policy if exists "Allow read on tasks" on public.tasks;
+drop policy if exists "Allow insert on tasks" on public.tasks;
+drop policy if exists "Allow update on tasks" on public.tasks;
+drop policy if exists "Allow delete on tasks" on public.tasks;
+drop policy if exists "Enable all on tasks" on public.tasks;
+
+create policy "Enable all on tasks"
+  on public.tasks
+  for all
+  to public
+  using (true)
+  with check (true);
+
+-- ------------------------------------------------------------------------------
+-- C. WEBSITE CMS POLICIES
 -- ------------------------------------------------------------------------------
 drop policy if exists "Allow read on content_items" on public.content_items;
 drop policy if exists "Allow insert on content_items" on public.content_items;
 drop policy if exists "Allow update on content_items" on public.content_items;
 drop policy if exists "Allow delete on content_items" on public.content_items;
 drop policy if exists "Admin only read on content_items" on public.content_items;
+drop policy if exists "Admin only insert on content_items" on public.content_items;
+drop policy if exists "Admin only update on content_items" on public.content_items;
+drop policy if exists "Admin only delete on content_items" on public.content_items;
 drop policy if exists "Admin only manage on content_items" on public.content_items;
+drop policy if exists "Enable all on content_items" on public.content_items;
 
--- Strictly Admins can read CMS items
-create policy "Admin only read on content_items"
-  on public.content_items for select
-  using (is_admin());
-
--- Strictly Admins can create CMS items
-create policy "Admin only insert on content_items"
-  on public.content_items for insert
-  with check (is_admin());
-
--- Strictly Admins can update CMS items
-create policy "Admin only update on content_items"
-  on public.content_items for update
-  using (is_admin())
-  with check (is_admin());
-
--- Strictly Admins can delete CMS items
-create policy "Admin only delete on content_items"
-  on public.content_items for delete
-  using (is_admin());
+create policy "Enable all on content_items"
+  on public.content_items
+  for all
+  to public
+  using (true)
+  with check (true);
 
 -- ------------------------------------------------------------------------------
--- C. CRM / LEADS POLICIES (Sales Manager, CEO, Admin)
+-- D. CRM / LEADS POLICIES
 -- ------------------------------------------------------------------------------
 drop policy if exists "CRM access read" on public.crm_leads;
 drop policy if exists "CRM access insert" on public.crm_leads;
 drop policy if exists "CRM access update" on public.crm_leads;
 drop policy if exists "CRM access delete" on public.crm_leads;
+drop policy if exists "Enable all on crm_leads" on public.crm_leads;
 
-create policy "CRM access read"
-  on public.crm_leads for select
-  using (can_access_crm());
-
-create policy "CRM access insert"
-  on public.crm_leads for insert
-  with check (can_access_crm());
-
-create policy "CRM access update"
-  on public.crm_leads for update
-  using (can_access_crm())
-  with check (can_access_crm());
-
-create policy "CRM access delete"
-  on public.crm_leads for delete
-  using (can_access_crm());
-
--- ------------------------------------------------------------------------------
--- D. TASKS POLICIES
--- ------------------------------------------------------------------------------
-drop policy if exists "Allow read on tasks" on public.tasks;
-drop policy if exists "Allow insert on tasks" on public.tasks;
-drop policy if exists "Allow update on tasks" on public.tasks;
-drop policy if exists "Allow delete on tasks" on public.tasks;
-
-create policy "Allow read on tasks"
-  on public.tasks for select
-  using (true);
-
-create policy "Allow insert on tasks"
-  on public.tasks for insert
+create policy "Enable all on crm_leads"
+  on public.crm_leads
+  for all
+  to public
+  using (true)
   with check (true);
-
-create policy "Allow update on tasks"
-  on public.tasks for update
-  using (true);
-
-create policy "Allow delete on tasks"
-  on public.tasks for delete
-  using (is_admin_or_ceo() or created_by = requesting_firebase_uid());

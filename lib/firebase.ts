@@ -6,6 +6,10 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
+  updatePassword as firebaseUpdatePassword,
+  updateProfile as firebaseUpdateProfile,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   Auth,
 } from "firebase/auth";
 
@@ -28,5 +32,9 @@ export {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   firebaseSignOut,
+  firebaseUpdatePassword,
+  firebaseUpdateProfile,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 };
 

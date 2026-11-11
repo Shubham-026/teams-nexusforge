@@ -28,9 +28,9 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // 3. Strict Protection for CRM / Leads: Sales Manager, CEO, Admin ONLY
+  // 3. Strict Protection for CRM / Leads: Sales Manager, Lead Manager, CEO, Admin ONLY
   if (pathname.startsWith("/crm")) {
-    const allowed = role === "admin" || role === "ceo" || role === "sales_manager";
+    const allowed = role === "admin" || role === "ceo" || role === "sales_manager" || role === "lead_manager";
     if (!allowed) {
       const url = request.nextUrl.clone();
       url.pathname = "/tasks";

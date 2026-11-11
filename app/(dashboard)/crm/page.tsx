@@ -9,7 +9,7 @@ export const metadata = {
 export default function CRMPage() {
   return (
     <RoleGuard
-      allowedRoles={["admin", "ceo", "sales_manager"]}
+      allowedRoles={["admin", "ceo", "sales_manager", "lead_manager"]}
       moduleName="Sales CRM & Lead Pipeline"
     >
       <CRMBoard />
