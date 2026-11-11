@@ -7,43 +7,58 @@ const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placehol
 const supabaseUrl = rawSupabaseUrl.replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
 
+let globalSupabaseClient: SupabaseClient | null = null;
+
 /**
- * Creates or retrieves a Supabase client that dynamically injects the
+ * Creates or retrieves a Supabase client singleton that dynamically injects the
  * current Firebase Auth ID Token (JWT) into every request's Authorization header.
  *
- * This allows Supabase PostgREST to verify the Firebase JWT and execute Row Level Security (RLS)
- * using the Firebase UID in `request.jwt.claims ->> 'sub'`.
+ * Reusing a singleton instance prevents GoTrueClient duplicate instantiation warnings
+ * and optimizes PostgREST connection pooling.
  */
 export const getSupabaseClient = (customToken?: string): SupabaseClient => {
-  return createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-    global: {
-      headers: customToken ? { Authorization: `Bearer ${customToken}` } : {},
-      fetch: async (url, options = {}) => {
-        // Attach Firebase user tracking headers without overwriting Supabase's Authorization header
-        const user = auth.currentUser;
-        if (user) {
-          try {
-            const headers = new Headers(options.headers || {});
-            headers.set("x-firebase-uid", user.uid);
-            if (user.email) headers.set("x-firebase-email", user.email);
-            // If custom token is explicitly provided (e.g. for custom JWT proxy), set it,
-            // otherwise maintain Supabase Anon key in Authorization header so PostgREST verifies requests.
-            if (customToken) {
-              headers.set("Authorization", `Bearer ${customToken}`);
-            }
-            return fetch(url, { ...options, headers });
-          } catch (err) {
-            console.warn("Failed to attach Firebase metadata to Supabase fetch:", err);
-          }
-        }
-        return fetch(url, options);
+  // If custom token is explicitly provided (e.g. for custom JWT proxy), return isolated instance
+  if (customToken) {
+    return createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
       },
-    },
-  });
+      global: {
+        headers: { Authorization: `Bearer ${customToken}` },
+      },
+    });
+  }
+
+  // Reuse singleton instance
+  if (!globalSupabaseClient) {
+    globalSupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        fetch: async (url, options = {}) => {
+          if (typeof window !== "undefined") {
+            const user = auth.currentUser;
+            if (user) {
+              try {
+                const headers = new Headers(options.headers || {});
+                headers.set("x-firebase-uid", user.uid);
+                if (user.email) headers.set("x-firebase-email", user.email);
+                return fetch(url, { ...options, headers });
+              } catch (err) {
+                console.warn("Failed to attach Firebase metadata to Supabase fetch:", err);
+              }
+            }
+          }
+          return fetch(url, options);
+        },
+      },
+    });
+  }
+
+  return globalSupabaseClient;
 };
 
 export const supabase = getSupabaseClient();

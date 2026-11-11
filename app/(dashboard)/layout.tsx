@@ -14,12 +14,12 @@ export default function DashboardLayout({
 
   return (
     <AuthGuard>
-      <div className="flex min-h-screen bg-[#FAF9FD] text-slate-800 antialiased">
-        {/* Collapsible Sidebar */}
+      <div className="flex h-screen w-full overflow-hidden bg-[#FAF9FD] text-slate-800 antialiased">
+        {/* Fixed Unscrollable Sidebar */}
         <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
 
         {/* Main Content Area */}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex flex-1 flex-col h-screen min-w-0 overflow-hidden">
           {/* Top Header */}
           <Header />
 
