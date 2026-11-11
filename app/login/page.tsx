@@ -17,7 +17,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user && !loading) {
-      router.push("/tasks");
+      router.push("/dashboard");
     }
   }, [user, loading, router]);
 
@@ -28,7 +28,7 @@ export default function LoginPage() {
 
     try {
       await signInWithEmail(email, password);
-      router.push("/tasks");
+      router.push("/dashboard");
     } catch (err: any) {
       const msg = err?.message || "Authentication failed";
       if (msg.includes("auth/invalid-credential") || msg.includes("auth/user-not-found") || msg.includes("auth/wrong-password")) {
@@ -48,7 +48,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await signInWithGoogle();
-      router.push("/tasks");
+      router.push("/dashboard");
     } catch (err: any) {
       if (!err?.message?.includes("auth/popup-closed-by-user")) {
         setError(err?.message || "Google sign in was unsuccessful");

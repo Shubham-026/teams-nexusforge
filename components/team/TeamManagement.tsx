@@ -97,12 +97,32 @@ export const TeamManagement: React.FC = () => {
     setSubmitting(true);
 
     try {
-      const res = await createTeamUser({
-        name,
-        email,
-        password,
-        role,
-      });
+      let res: any = null;
+
+      try {
+        res = await createTeamUser({
+          name,
+          email,
+          password,
+          role,
+        });
+      } catch (actionErr) {
+        console.warn("Server action createTeamUser error, trying REST API fallback:", actionErr);
+      }
+
+      // If Server Action failed or encountered a 500 error, seamlessly fall back to REST API
+      if (!res || !res.success) {
+        const apiRes = await fetch("/api/admin/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, password, role }),
+        });
+        const apiData = await apiRes.json();
+        if (!apiRes.ok || apiData.error) {
+          throw new Error(apiData.error || res?.error || "Failed to provision user");
+        }
+        res = { success: true, user: apiData.user };
+      }
 
       if (!res.success) {
         throw new Error(res.error || "Failed to create user");
@@ -144,7 +164,18 @@ export const TeamManagement: React.FC = () => {
       if (!res.success) {
         throw new Error(res.error || "Failed to delete user");
       }
-      info("User Removed", `User ${memberName} was successfully deleted`);
+
+      if (res.firebaseDeleted) {
+        success(
+          "User Deleted",
+          `User ${memberName} was permanently deleted from both Firebase Auth and Supabase.`
+        );
+      } else {
+        info(
+          "User Removed from Directory",
+          `User ${memberName} was removed from Supabase. Note: To delete Firebase Auth credentials automatically, configure FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY.`
+        );
+      }
       setDeleteConfirmId(null);
       await fetchMembers();
     } catch (err: any) {

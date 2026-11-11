@@ -1,6 +1,6 @@
 "use server";
 
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { getAdminAuth } from "@/lib/firebaseAdmin";
 import { getSupabaseClient } from "@/lib/supabase";
 import { UserRole } from "@/lib/types";
 
@@ -37,12 +37,10 @@ export async function createTeamUser(input: CreateUserInput) {
     let firebaseCreated = false;
 
     // Strategy A: If Service Account private key is configured, use Firebase Admin SDK
-    const hasServiceAccount =
-      process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY;
-
-    if (hasServiceAccount) {
+    const admin = getAdminAuth();
+    if (admin) {
       try {
-        const userRecord = await adminAuth.createUser({
+        const userRecord = await admin.createUser({
           email,
           password,
           displayName: name,
@@ -51,12 +49,12 @@ export async function createTeamUser(input: CreateUserInput) {
         firebaseUid = userRecord.uid;
         firebaseCreated = true;
         try {
-          await adminAuth.setCustomUserClaims(userRecord.uid, { role });
+          await admin.setCustomUserClaims(userRecord.uid, { role });
         } catch (claimsErr) {
           console.warn("Could not set custom claims:", claimsErr);
         }
       } catch (adminErr: any) {
-        console.warn("adminAuth.createUser failed, falling back to Identity Toolkit:", adminErr?.message);
+        console.warn("admin.createUser failed, falling back to Identity Toolkit:", adminErr?.message);
       }
     }
 
@@ -125,6 +123,7 @@ export async function createTeamUser(input: CreateUserInput) {
     }
 
     // Compute initials and avatar color
+    const cleanEmail = email.toLowerCase().trim();
     const initials =
       name
         .split(" ")
@@ -143,21 +142,35 @@ export async function createTeamUser(input: CreateUserInput) {
 
     // Synchronize into Supabase team_members with RBAC role
     const client = getSupabaseClient();
-    const { error: dbError } = await client.from("team_members").upsert(
-      {
-        id: firebaseUid,
-        name,
-        email,
-        role,
-        avatar_initials: initials,
-        color: roleColors[role] || "lavender",
-        created_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
+    const { data: existingMember } = await client
+      .from("team_members")
+      .select("id, email")
+      .or(`id.eq.${firebaseUid},email.ilike.${cleanEmail}`)
+      .maybeSingle();
 
-    if (dbError) {
-      console.warn("Firebase Auth updated, but Supabase team_members returned warning:", dbError.message);
+    if (existingMember) {
+      await client
+        .from("team_members")
+        .update({
+          id: firebaseUid,
+          name,
+          role,
+          avatar_initials: initials,
+          color: roleColors[role] || "lavender",
+        })
+        .or(`id.eq.${firebaseUid},email.ilike.${cleanEmail}`);
+    } else {
+      await client.from("team_members").insert([
+        {
+          id: firebaseUid,
+          name,
+          email: cleanEmail,
+          role,
+          avatar_initials: initials,
+          color: roleColors[role] || "lavender",
+          created_at: new Date().toISOString(),
+        },
+      ]);
     }
 
     return {
@@ -165,7 +178,7 @@ export async function createTeamUser(input: CreateUserInput) {
       user: {
         id: firebaseUid,
         name,
-        email,
+        email: cleanEmail,
         role,
       },
     };
@@ -189,16 +202,44 @@ export async function deleteTeamUser(uid: string, email?: string) {
   try {
     if (!uid) return { success: false, error: "User ID required" };
 
-    // Attempt Firebase Admin deletion if configured
-    try {
-      if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-        await adminAuth.deleteUser(uid);
+    let fbDeleted = false;
+    let fbErrorMsg: string | null = null;
+
+    // 1. Attempt Firebase Admin deletion if service account is configured
+    const admin = getAdminAuth();
+    if (admin) {
+      try {
+        await admin.deleteUser(uid);
+        fbDeleted = true;
+      } catch (fbErr: any) {
+        // If not found by UID, try looking up by email in Firebase Auth
+        if (
+          email &&
+          (fbErr?.code === "auth/user-not-found" ||
+            fbErr?.message?.includes("user-not-found") ||
+            fbErr?.message?.includes("not found"))
+        ) {
+          try {
+            const userRecord = await admin.getUserByEmail(email.trim());
+            if (userRecord?.uid) {
+              await admin.deleteUser(userRecord.uid);
+              fbDeleted = true;
+            }
+          } catch (byEmailErr: any) {
+            fbErrorMsg = byEmailErr?.message;
+            console.warn("Could not delete user in Firebase by email:", byEmailErr?.message);
+          }
+        } else {
+          fbErrorMsg = fbErr?.message;
+          console.warn("Firebase Admin deleteUser error:", fbErr?.message);
+        }
       }
-    } catch (fbErr: any) {
-      console.warn("Firebase Admin deleteUser note:", fbErr?.message);
+    } else {
+      fbErrorMsg =
+        "Service Account credentials (FIREBASE_CLIENT_EMAIL & FIREBASE_PRIVATE_KEY) not found in environment.";
     }
 
-    // Delete user from Supabase team_members
+    // 2. Delete user from Supabase team_members
     const client = getSupabaseClient();
     let query = client.from("team_members").delete();
     if (email && email.trim()) {
@@ -212,7 +253,11 @@ export async function deleteTeamUser(uid: string, email?: string) {
       throw new Error(dbError.message);
     }
 
-    return { success: true };
+    return {
+      success: true,
+      firebaseDeleted: fbDeleted,
+      firebaseWarning: !fbDeleted ? fbErrorMsg : null,
+    };
   } catch (err: any) {
     console.error("Error deleting team user:", err);
     return {
@@ -230,12 +275,13 @@ export async function updateTeamUserRole(uid: string, newRole: UserRole, email?:
     if (!uid || !newRole) return { success: false, error: "UID and Role required" };
 
     // Update Firebase Custom Claims if Admin SDK is configured
-    try {
-      if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-        await adminAuth.setCustomUserClaims(uid, { role: newRole });
+    const admin = getAdminAuth();
+    if (admin) {
+      try {
+        await admin.setCustomUserClaims(uid, { role: newRole });
+      } catch (claimErr) {
+        console.warn("Notice: Custom claims require service account:", claimErr);
       }
-    } catch (claimErr) {
-      console.warn("Notice: Custom claims require service account:", claimErr);
     }
 
     const roleColors: Record<UserRole, string> = {

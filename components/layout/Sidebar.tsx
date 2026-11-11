@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
+  LayoutDashboard,
   Kanban,
   FileText,
   Users,
@@ -46,6 +47,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
 
   // Dynamic Navigation based on RBAC permissions
   const navigation = [
+    // Executive / Personal Dashboard (Accessible to all roles)
+    {
+      name: "Dashboard",
+      href: "/dashboard",
+      icon: LayoutDashboard,
+      badge: "Overview",
+      accent: "lavender",
+      visible: true,
+    },
     // Standard Task Board (Accessible to all roles)
     {
       name: "Task Board",
@@ -95,12 +105,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
 
   return (
     <aside
-      className={`relative z-20 flex flex-col border-r border-slate-200/80 bg-white/95 backdrop-blur-sm transition-all duration-300 ease-in-out ${
+      className={`sticky top-0 z-30 flex h-screen shrink-0 flex-col border-r border-slate-200/80 bg-white/95 backdrop-blur-sm transition-all duration-300 ease-in-out select-none ${
         collapsed ? "w-20" : "w-64"
       }`}
     >
       {/* Brand Header */}
-      <div className="flex h-16 items-center justify-between border-b border-slate-100 px-4">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4">
         {!collapsed ? (
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-pastel-lavender-100 border border-pastel-lavender-200 text-pastel-lavender-500 shadow-soft-sm">
@@ -126,8 +136,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         </button>
       </div>
 
-      {/* Main Navigation */}
-      <div className="flex-1 space-y-1.5 px-3 py-4">
+      {/* Main Navigation - Non-scrolling with safe overflow containment */}
+      <div className="flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden px-3 py-4">
         <div className="px-2 pb-2">
           {!collapsed && (
             <div className="flex items-center justify-between">
@@ -215,9 +225,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         })}
       </div>
 
-      {/* User Role Card & Agency Subdomain */}
+      {/* User Role Card & Agency Subdomain - Pinned at bottom */}
       {!collapsed && (
-        <div className="space-y-2 p-3">
+        <div className="shrink-0 space-y-2 border-t border-slate-100/80 p-3">
           {/* Active Role Card */}
           <div className="flex items-center gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2.5 text-xs">
             <Shield className="h-4 w-4 text-pastel-lavender-500 shrink-0" />

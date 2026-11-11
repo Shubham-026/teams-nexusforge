@@ -16,7 +16,7 @@ interface RoleGuardProps {
 export const RoleGuard: React.FC<RoleGuardProps> = ({
   children,
   allowedRoles,
-  fallbackPath = "/tasks",
+  fallbackPath = "/dashboard",
   moduleName = "this module",
 }) => {
   const { role, loading, user } = useAuth();

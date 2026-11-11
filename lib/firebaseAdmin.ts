@@ -7,25 +7,46 @@ const privateKey = process.env.FIREBASE_PRIVATE_KEY
   ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
   : undefined;
 
-let app: App;
+let cachedAuth: Auth | null = null;
 
-if (getApps().length === 0) {
-  if (privateKey && clientEmail) {
-    app = initializeApp({
-      credential: cert({
-        projectId,
-        clientEmail,
-        privateKey,
-      }),
-    });
-  } else {
-    app = initializeApp({
-      projectId,
-    });
+export function getAdminAuth(): Auth | null {
+  if (cachedAuth) return cachedAuth;
+  if (!clientEmail || !privateKey) {
+    return null;
   }
-} else {
-  app = getApp();
+
+  try {
+    let app: App;
+    if (getApps().length === 0) {
+      app = initializeApp({
+        credential: cert({
+          projectId,
+          clientEmail,
+          privateKey,
+        }),
+      });
+    } else {
+      app = getApp();
+    }
+    cachedAuth = getAuth(app);
+    return cachedAuth;
+  } catch (err) {
+    console.warn("Firebase Admin SDK initialization skipped (no service account):", err);
+    return null;
+  }
 }
 
-export const adminAuth: Auth = getAuth(app);
-export default app;
+// Fallback proxy to maintain backwards compatibility without throwing on import
+export const adminAuth = new Proxy({} as Auth, {
+  get(_target, prop) {
+    const authInstance = getAdminAuth();
+    if (!authInstance) {
+      throw new Error(
+        "Firebase Admin SDK service account credentials not configured in environment."
+      );
+    }
+    return (authInstance as any)[prop];
+  },
+});
+
+export default null;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { getAdminAuth } from "@/lib/firebaseAdmin";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
@@ -18,9 +18,10 @@ export async function POST(req: NextRequest) {
     let firebaseCreated = false;
 
     // Strategy A: Firebase Admin SDK
-    if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    const admin = getAdminAuth();
+    if (admin) {
       try {
-        const userRecord = await adminAuth.createUser({
+        const userRecord = await admin.createUser({
           email,
           password,
           displayName: name,
@@ -29,12 +30,12 @@ export async function POST(req: NextRequest) {
         firebaseUid = userRecord.uid;
         firebaseCreated = true;
         try {
-          await adminAuth.setCustomUserClaims(userRecord.uid, { role });
+          await admin.setCustomUserClaims(userRecord.uid, { role });
         } catch (claimsErr) {
           console.warn("Could not set custom claims:", claimsErr);
         }
       } catch (adminErr: any) {
-        console.warn("adminAuth.createUser failed, falling back to REST API:", adminErr?.message);
+        console.warn("admin.createUser failed, falling back to REST API:", adminErr?.message);
       }
     }
 
@@ -136,23 +137,47 @@ export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const uid = searchParams.get("uid");
+    const email = searchParams.get("email");
 
     if (!uid) {
       return NextResponse.json({ error: "Missing uid parameter" }, { status: 400 });
     }
 
-    try {
-      if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-        await adminAuth.deleteUser(uid);
+    let fbDeleted = false;
+    const admin = getAdminAuth();
+    if (admin) {
+      try {
+        await admin.deleteUser(uid);
+        fbDeleted = true;
+      } catch (fbErr: any) {
+        if (
+          email &&
+          (fbErr?.code === "auth/user-not-found" ||
+            fbErr?.message?.includes("user-not-found"))
+        ) {
+          try {
+            const userRecord = await admin.getUserByEmail(email.trim());
+            if (userRecord?.uid) {
+              await admin.deleteUser(userRecord.uid);
+              fbDeleted = true;
+            }
+          } catch (byEmailErr: any) {
+            console.warn("Delete by email note:", byEmailErr?.message);
+          }
+        }
       }
-    } catch (fbErr: any) {
-      console.warn("Firebase deleteUser note:", fbErr?.message);
     }
 
     const client = getSupabaseClient();
-    await client.from("team_members").delete().eq("id", uid);
+    let query = client.from("team_members").delete();
+    if (email && email.trim()) {
+      query = query.or(`id.eq.${uid},email.ilike.${email.trim()}`);
+    } else {
+      query = query.eq("id", uid);
+    }
+    await query;
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, firebaseDeleted: fbDeleted });
   } catch (err: any) {
     console.error("API /api/admin/users delete error:", err);
     return NextResponse.json(
