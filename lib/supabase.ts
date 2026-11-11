@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { auth } from "./firebase";
-import { Task, ContentItem, TaskStatus, TeamMember, CRMLead, UserRole, LeadStatus } from "./types";
+import { Task, ContentItem, TaskStatus, TeamMember, CRMLead, UserRole, LeadStatus, CustomRole, RolePermissions } from "./types";
 
 const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
 // Auto-sanitize URL to strip any accidental /rest/v1 or trailing slashes
@@ -442,4 +442,165 @@ export function subscribeToTasks(onUpdate: () => void): () => void {
   return () => {
     client.removeChannel(channel);
   };
+}
+
+// ==========================================
+// DYNAMIC ROLES & PERMISSIONS API FUNCTIONS
+// ==========================================
+
+export const DEFAULT_ROLES: CustomRole[] = [
+  {
+    id: "admin",
+    name: "Admin / CTO",
+    description: "Full system control, Website CMS, and infrastructure access.",
+    color: "lavender",
+    is_system: true,
+    can_access_tasks: true,
+    can_access_crm: true,
+    can_access_cms: true,
+    can_manage_team: true,
+    can_manage_roles: true,
+  },
+  {
+    id: "ceo",
+    name: "CEO (Executive)",
+    description: "Executive oversight, agency analytics, and team governance (all except core CMS technical).",
+    color: "peach",
+    is_system: true,
+    can_access_tasks: true,
+    can_access_crm: true,
+    can_access_cms: false, // Core technical functionality strictly restricted to CTO
+    can_manage_team: true,
+    can_manage_roles: true,
+  },
+  {
+    id: "sales_manager",
+    name: "Sales Manager",
+    description: "Client acquisition tracking, outreach pipelines, and conversion analytics.",
+    color: "sky",
+    is_system: false,
+    can_access_tasks: true,
+    can_access_crm: true,
+    can_access_cms: false,
+    can_manage_team: false,
+    can_manage_roles: false,
+  },
+  {
+    id: "lead_manager",
+    name: "Lead Manager",
+    description: "Prospect qualification, outreach coordination, and lead pipeline.",
+    color: "mint",
+    is_system: false,
+    can_access_tasks: true,
+    can_access_crm: true,
+    can_access_cms: false,
+    can_manage_team: false,
+    can_manage_roles: false,
+  },
+  {
+    id: "member",
+    name: "Team Member",
+    description: "Task deliverables, kanban collaboration, and internal communications.",
+    color: "slate",
+    is_system: false,
+    can_access_tasks: true,
+    can_access_crm: false,
+    can_access_cms: false,
+    can_manage_team: false,
+    can_manage_roles: false,
+  },
+];
+
+export async function getCustomRoles(): Promise<CustomRole[]> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("custom_roles")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    if (error || !data || data.length === 0) {
+      return DEFAULT_ROLES;
+    }
+
+    const rolesMap = new Map<string, CustomRole>();
+    DEFAULT_ROLES.forEach((r) => rolesMap.set(r.id, r));
+    data.forEach((r: CustomRole) => rolesMap.set(r.id, { ...r }));
+
+    // Force system role constraints:
+    // CTO (admin): all permissions true
+    const adminRole = rolesMap.get("admin");
+    if (adminRole) {
+      adminRole.is_system = true;
+      adminRole.can_access_cms = true;
+      adminRole.can_manage_roles = true;
+      adminRole.can_manage_team = true;
+    }
+    // CEO: all permissions true EXCEPT Website CMS (core technical)
+    const ceoRole = rolesMap.get("ceo");
+    if (ceoRole) {
+      ceoRole.is_system = true;
+      ceoRole.can_access_cms = false;
+      ceoRole.can_manage_roles = true;
+      ceoRole.can_manage_team = true;
+    }
+
+    return Array.from(rolesMap.values());
+  } catch (err) {
+    console.warn("Using default roles fallback:", err);
+    return DEFAULT_ROLES;
+  }
+}
+
+export async function saveCustomRole(role: CustomRole): Promise<CustomRole> {
+  const client = getSupabaseClient();
+
+  // Enforce system constraints
+  if (role.id === "admin") {
+    role.is_system = true;
+    role.can_access_cms = true;
+    role.can_manage_roles = true;
+    role.can_manage_team = true;
+  }
+  if (role.id === "ceo") {
+    role.is_system = true;
+    role.can_access_cms = false; // Never allow CMS for CEO
+    role.can_manage_roles = true;
+    role.can_manage_team = true;
+  }
+
+  const { data, error } = await client
+    .from("custom_roles")
+    .upsert([role], { onConflict: "id" })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error saving custom role:", error);
+    throw error;
+  }
+  return data as CustomRole;
+}
+
+export async function deleteCustomRole(roleId: string): Promise<void> {
+  if (roleId === "admin" || roleId === "ceo") {
+    throw new Error("Cannot delete immutable system roles (CTO and CEO).");
+  }
+
+  const client = getSupabaseClient();
+  // Safely reassign any members with this role to 'member'
+  await client
+    .from("team_members")
+    .update({ role: "member" })
+    .eq("role", roleId);
+
+  const { error } = await client
+    .from("custom_roles")
+    .delete()
+    .eq("id", roleId);
+
+  if (error) {
+    console.error("Error deleting custom role:", error);
+    throw error;
+  }
 }

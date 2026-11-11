@@ -2,7 +2,30 @@ export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done';
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
-export type UserRole = 'admin' | 'ceo' | 'sales_manager' | 'lead_manager' | 'member';
+export type UserRole =
+  | 'admin'
+  | 'ceo'
+  | 'sales_manager'
+  | 'lead_manager'
+  | 'member'
+  | (string & {});
+
+export interface RolePermissions {
+  can_access_tasks: boolean;
+  can_access_crm: boolean;
+  can_access_cms: boolean;
+  can_manage_team: boolean;
+  can_manage_roles: boolean;
+}
+
+export interface CustomRole extends RolePermissions {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+  is_system: boolean;
+  created_at?: string;
+}
 
 export interface TeamMember {
   id: string; // Firebase UID

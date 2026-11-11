@@ -23,7 +23,7 @@ import {
   ArrowRight,
   ExternalLink,
   Calendar,
-  DollarSign,
+  IndianRupee,
   Phone,
   Mail,
   FileText,
@@ -477,12 +477,12 @@ export const UserDashboard: React.FC = () => {
                 <span className="text-slate-500">
                   Active Pipeline Value:{" "}
                   <strong className="text-slate-800 font-mono font-semibold">
-                    ${pipelineValue.toLocaleString()}
+                    ₹{pipelineValue.toLocaleString()}
                   </strong>
                 </span>
                 <span className="text-slate-300">|</span>
                 <span className="text-pastel-mint-500 font-semibold">
-                  Won Revenue: ${wonRevenue.toLocaleString()}
+                  Won Revenue: ₹{wonRevenue.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -641,7 +641,7 @@ export const UserDashboard: React.FC = () => {
                           </p>
                         </td>
                         <td className="px-4 py-3 font-mono font-semibold text-slate-800">
-                          ${Number(lead.value || 0).toLocaleString()}
+                          ₹{Number(lead.value || 0).toLocaleString()}
                         </td>
                         <td className="px-4 py-3">
                           <span
